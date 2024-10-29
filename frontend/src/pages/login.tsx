@@ -31,7 +31,6 @@ const Login: FC = () => {
 					method: "POST",
 					credentials: "include",
 				}).then((response) => response.text());
-				console.log(codeChallenge);
 				const authorizeUrl =
 					authApiUrl +
 					"?client_id=" +
@@ -53,7 +52,6 @@ const Login: FC = () => {
 					duration: 1500,
 					onCloseComplete: () => {
 						window.location.replace(authorizeUrl);
-						setIsLoading(false);
 					},
 				});
 			} catch (e) {
@@ -76,7 +74,6 @@ const Login: FC = () => {
 			as="section"
 			py={10}
 			bg="gray.50"
-			className="hero-area"
 			boxShadow="sm"
 			borderRadius="md"
 			textAlign="center"

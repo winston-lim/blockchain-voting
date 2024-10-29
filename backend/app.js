@@ -103,9 +103,10 @@ function readFiles(dirname, onFileContent, onError) {
 app.post("/getPersonData", async function (req, res, next) {
 	try {
 		// get variables from frontend
-		var authCode = req.body.authCode;
+		const authCode = req.body.authCode;
 		//retrieve code verifier from session cache
-		var codeVerifier = sessionIdCache[req.cookies.sid];
+		const sid = req.body.sid;
+		const codeVerifier = sessionIdCache[sid];
 		console.log("Calling MyInfo NodeJs Library...".green);
 
 		// retrieve private siging key and decode to utf8 from FS
@@ -163,7 +164,6 @@ app.post("/generateCodeChallenge", async function (req, res, next) {
 
 		//establish a frontend session with browser to retrieve back code_verifier
 		res.cookie("sid", sessionId);
-		console.log({ sessionId });
 		//send code code_challenge to frontend to make /authorize call
 		res.status(200).send(pkceCodePair.codeChallenge);
 	} catch (error) {
