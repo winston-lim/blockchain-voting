@@ -25,26 +25,24 @@ app.use(
 );
 app.use(cookieParser());
 app.use(function (req, res, next) {
-	// Website you wish to allow to connect
+	// define origins allowed
 	res.setHeader("Access-Control-Allow-Origin", "http://localhost:3000");
 
-	// Request methods you wish to allow
+	// define methods allowed
 	res.setHeader(
 		"Access-Control-Allow-Methods",
 		"GET, POST, OPTIONS, PUT, PATCH, DELETE"
 	);
 
-	// Request headers you wish to allow
+	// define headers allowed
 	res.setHeader(
 		"Access-Control-Allow-Headers",
 		"X-Requested-With,content-type"
 	);
 
-	// Set to true if you need the website to include cookies in the requests sent
-	// to the API (e.g. in case you use sessions)
+	// Allow origins to include cookies in the requests sent
 	res.setHeader("Access-Control-Allow-Credentials", true);
 
-	// Pass to next layer of middleware
 	next();
 });
 
@@ -76,18 +74,10 @@ app.get("/getEnv", function (_, res) {
 	}
 });
 
-// app.get("/verify", function (req, res) {
-// 	if (req.cookies.sid == "" || sessionIdCache[req.cookies.sid] == undefined) {
-// 		res.status(401).send();
-// 	} else {
-// 		res.status(200).send();
-// 	}
-// });
-
 // callback function - directs back to home page
 app.get("/callback", function (req, res) {
 	res.cookie("code", req.query.code);
-	res.redirect("http://localhost:3000");
+	res.redirect("http://localhost:3000/protected");
 });
 
 //function to read multiple files from a directory
