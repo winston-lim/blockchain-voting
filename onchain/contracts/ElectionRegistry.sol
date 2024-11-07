@@ -7,7 +7,7 @@ contract ElectionRegistry {
     struct Election {
         uint256 startTime;
         uint256 endTime;
-        bytes32[] choices; // List of valid choices
+        bytes32[] choices; // List of valid choices (hashed)
         bool exists;
         address publicKey; // Address representing the election's public key
     }

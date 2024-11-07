@@ -16,6 +16,7 @@ contract VotingManager {
     mapping(bytes32 => bool) private tokenUsed; // Tracks used tokens
 
     event VoteCast(uint256 electionId, bytes32 tokenHash);
+    event VoteTallyCompleted(uint256 electionId);
 
     constructor(address _electionRegistryAddress) {
         admin = msg.sender;
