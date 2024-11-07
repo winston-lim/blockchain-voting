@@ -1,0 +1,25 @@
+@startuml
+actor Voter
+participant Frontend
+participant Server
+participant Admin
+participant Singpass
+
+Voter -> Frontend: Access voting system
+Frontend -> Voter: Display authentication option
+Voter -> Singpass: Authenticate
+Singpass --> Voter: Authentication successful
+Voter -> Frontend: Return from authentication
+Frontend -> Server: Request voter data (with auth code)
+Server -> Singpass: Get voter data (with auth code)
+Singpass --> Server: Voter data (including NRIC)
+Server --> Frontend: Voter data
+Voter -> Frontend: Generate token and blinding factor
+Voter -> Voter: Blinded Token = Blind(token)
+Voter -> Server: Request token signing (blindedToken)
+Server -> Admin: Sign blindedToken
+Admin --> Server: Signed Blinded Token
+Server --> Voter: Signed Blinded Token
+Voter -> Voter: Unblind signed token
+Voter -> Voter: Store signed token for voting
+@enduml

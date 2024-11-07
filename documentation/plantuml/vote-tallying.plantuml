@@ -1,0 +1,10 @@
+@startuml
+actor Admin
+participant VotingManager
+
+Admin -> VotingManager: Get encrypted votes for electionId
+VotingManager --> Admin: List of encrypted votes
+Admin -> Admin: Decrypt votes using election private key
+Admin -> Admin: Tally votes
+Admin -> All: Announce election results
+@enduml

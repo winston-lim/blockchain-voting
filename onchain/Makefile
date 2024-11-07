@@ -2,7 +2,7 @@ setup:
 	ganache-cli
 
 migrate:
-	truffle migrate --reset --network development
+	truffle migrate
 
 run-test:
 	truffle test

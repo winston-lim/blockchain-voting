@@ -1,0 +1,10 @@
+@startuml
+actor Admin
+participant Server
+participant ElectionRegistry
+
+Admin -> Server: Create Election (startTime, endTime, choices)
+Server -> ElectionRegistry: createElection(startTime, endTime, choices, publicKey)
+ElectionRegistry --> Server: Transaction Receipt
+Server --> Admin: Election Created (electionId)
+@enduml
