@@ -29,7 +29,7 @@ contract VotingManager {
         bytes32 _token,
         bytes memory _signature
     ) public {
-        (uint256 startTime, uint256 endTime, bool exists, address publicKey) = electionRegistry.elections(_electionId);
+        (uint256 startTime, uint256 endTime, bool exists,) = electionRegistry.elections(_electionId);
         require(exists, "Election does not exist");
         require(block.timestamp >= startTime, "Election has not started");
         require(block.timestamp <= endTime, "Election has ended");

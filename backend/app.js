@@ -1,14 +1,25 @@
-// Import required modules
+// Common dependencies
 const express = require("express");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
-const crypto = require("crypto");
 const fs = require("fs");
-// const Web3 = require("web3");
-// const NodeRSA = require("node-rsa"); // Added for RSA operations
+const NodeRSA = require("node-rsa");
+// Singpass dependencies
 const MyInfoConnector = require("myinfo-connector-v4-nodejs");
+// Web3 dependencies
+const crypto = require("crypto");
+// Local dependencies
+const {
+	adminAccount,
+	adminRSAPrivateKey,
+	electionPrivateKeyPath,
+	electionPublicKeyPath,
+	generateElectionRSAKeys,
+} = require("./helpers/key.js");
+const { web3 } = require("./helpers/web3.js");
 
+// ExpressJS setup
 const app = express();
 const port = 3001;
 const config = require("./config/config.js");
@@ -18,7 +29,7 @@ const connector = new MyInfoConnector(config.MYINFO_CONNECTOR_CONFIG);
 const sessionIdCache = {}; // Stores codeVerifier and NRIC per session
 const issuedTokens = {}; // Tracks issued tokens per voter per election
 
-// Middleware setup
+// Middlewares
 app.use(express.json());
 app.use(cors());
 app.use(bodyParser.json());
@@ -38,40 +49,25 @@ app.use(function (req, res, next) {
 	next();
 });
 
-// // Blockchain setup
-// const web3 = new Web3("http://localhost:8545"); // Adjust as needed
-// const ElectionRegistryABI =
-// 	require("./build/contracts/ElectionRegistry.json").abi;
-// const VotingManagerABI = require("./build/contracts/VotingManager.json").abi;
+// Web3 setups
+const ElectionRegistryABI =
+	require("../onchain/build/contracts/ElectionRegistry.json").abi;
+const VotingManagerABI =
+	require("../onchain/build/contracts/VotingManager.json").abi;
+const electionRegistryAddress =
+	require("../onchain/build/contracts/DeploymentAddresses.json").ElectionRegistryAddress;
+const votingManagerAddress =
+	require("../onchain/build/contracts/DeploymentAddresses.json").VotingManagerAddress;
+const electionRegistry = new web3.eth.Contract(
+	ElectionRegistryABI,
+	electionRegistryAddress
+);
+const votingManager = new web3.eth.Contract(
+	VotingManagerABI,
+	votingManagerAddress
+);
 
-// const electionRegistryAddress = "0xYourElectionRegistryAddress"; // Replace with actual address
-// const votingManagerAddress = "0xYourVotingManagerAddress"; // Replace with actual address
-
-// const electionRegistry = new web3.eth.Contract(
-// 	ElectionRegistryABI,
-// 	electionRegistryAddress
-// );
-// const votingManager = new web3.eth.Contract(
-// 	VotingManagerABI,
-// 	votingManagerAddress
-// );
-
-// // Admin account setup
-// const adminPrivateKey = fs
-// 	.readFileSync("./keys/admin_private_key.txt", "utf8")
-// 	.trim();
-// const adminAccount = web3.eth.accounts.privateKeyToAccount(adminPrivateKey);
-// web3.eth.accounts.wallet.add(adminAccount);
-
-// // RSA keys for blind signature
-// const adminRSAPrivateKeyPEM = fs
-// 	.readFileSync("./keys/admin_rsa_private_key.pem", "utf8")
-// 	.trim();
-// const adminRSAPrivateKey = new NodeRSA(adminRSAPrivateKeyPEM, "pkcs1-private");
-
-// Existing routes (identity verification and MyInfo data retrieval)
-
-// 1. Get environment variables
+// Get environment variables
 app.get("/getEnv", function (_, res) {
 	try {
 		if (
@@ -99,13 +95,13 @@ app.get("/getEnv", function (_, res) {
 	}
 });
 
-// 2. Callback function - directs back to home page
+// Redirection back to authenticated route
 app.get("/callback", function (req, res) {
 	res.cookie("code", req.query.code);
 	res.redirect("http://localhost:3000/protected");
 });
 
-// 3. Generate the code verifier and code challenge for PKCE flow
+// Generate the code verifier and code challenge
 app.post("/generateCodeChallenge", async function (req, res) {
 	try {
 		let pkceCodePair = connector.generatePKCECodePair();
@@ -122,7 +118,7 @@ app.post("/generateCodeChallenge", async function (req, res) {
 	}
 });
 
-// 4. Get Person Data - call MyInfo Token + Person API
+// Get Person Data via call MyInfo Token + Person API
 app.post("/getPersonData", async function (req, res) {
 	try {
 		const authCode = req.body.authCode;
@@ -171,210 +167,207 @@ app.post("/getPersonData", async function (req, res) {
 	}
 });
 
-// --- Updated APIs with Blind Signatures ---
+// Request Voting Token (with blind signature)
+app.post("/api/requestToken", async function (req, res) {
+	try {
+		const sid = req.cookies.sid;
+		const sessionData = sessionIdCache[sid];
+		if (!sessionData || !sessionData.nric) {
+			return res.status(401).json({ error: "Unauthorized" });
+		}
+		const nric = sessionData.nric;
+		const electionId = req.body.electionId;
+		if (!electionId) {
+			return res.status(400).json({ error: "Missing electionId" });
+		}
+		const key = nric + "_" + electionId;
+		if (issuedTokens[key]) {
+			return res
+				.status(400)
+				.json({ error: "Token already issued for this election" });
+		}
 
-// // 5. Request Voting Token (with blind signature)
-// app.post("/api/requestToken", async function (req, res) {
-// 	try {
-// 		const sid = req.cookies.sid;
-// 		const sessionData = sessionIdCache[sid];
-// 		if (!sessionData || !sessionData.nric) {
-// 			return res.status(401).json({ error: "Unauthorized" });
-// 		}
-// 		const nric = sessionData.nric;
-// 		const electionId = req.body.electionId;
-// 		if (!electionId) {
-// 			return res.status(400).json({ error: "Missing electionId" });
-// 		}
-// 		const key = nric + "_" + electionId;
-// 		if (issuedTokens[key]) {
-// 			return res
-// 				.status(400)
-// 				.json({ error: "Token already issued for this election" });
-// 		}
+		// Get the blinded token from the request
+		const blindedTokenHex = req.body.blindedToken;
+		if (!blindedTokenHex) {
+			return res.status(400).json({ error: "Missing blindedToken" });
+		}
+		const blindedTokenBuffer = Buffer.from(blindedTokenHex, "hex");
 
-// 		// Get the blinded token from the request
-// 		const blindedTokenHex = req.body.blindedToken;
-// 		if (!blindedTokenHex) {
-// 			return res.status(400).json({ error: "Missing blindedToken" });
-// 		}
-// 		const blindedTokenBuffer = Buffer.from(blindedTokenHex, "hex");
+		// Admin signs the blinded token using RSA blind signature
+		const signedBlindedTokenBuffer =
+			adminRSAPrivateKey.sign(blindedTokenBuffer);
+		const signedBlindedTokenHex = signedBlindedTokenBuffer.toString("hex");
 
-// 		// Admin signs the blinded token using RSA blind signature
-// 		const signedBlindedTokenBuffer =
-// 			adminRSAPrivateKey.sign(blindedTokenBuffer);
-// 		const signedBlindedTokenHex = signedBlindedTokenBuffer.toString("hex");
+		// Mark that the voter has been issued a token
+		issuedTokens[key] = true;
 
-// 		// Mark that the voter has been issued a token
-// 		issuedTokens[key] = true;
+		// Send the signed blinded token back to the voter
+		res.json({ signedBlindedToken: signedBlindedTokenHex });
+	} catch (error) {
+		console.error("Error in requestToken:", error);
+		res.status(500).json({ error: "Error requesting token" });
+	}
+});
 
-// 		// Send the signed blinded token back to the voter
-// 		res.json({ signedBlindedToken: signedBlindedTokenHex });
-// 	} catch (error) {
-// 		console.error("Error in requestToken:", error);
-// 		res.status(500).json({ error: "Error requesting token" });
-// 	}
-// });
+// Get Election Information
+app.get("/api/elections/:electionId", async function (req, res) {
+	const electionId = req.params.electionId;
+	try {
+		const election = await electionRegistry.methods
+			.elections(electionId)
+			.call();
+		if (!election.exists) {
+			return res.status(404).json({ error: "Election does not exist" });
+		}
+		const choices = await electionRegistry.methods
+			.getElectionChoices(electionId)
+			.call();
+		res.json({
+			electionId: electionId,
+			startTime: election.startTime,
+			endTime: election.endTime,
+			choices: choices,
+			publicKey: election.publicKey,
+		});
+	} catch (error) {
+		console.error("Error getting election info:", error);
+		res.status(500).json({ error: "Error getting election info" });
+	}
+});
 
-// // 6. Cast Vote
-// app.post("/api/castVote", async function (req, res) {
-// 	try {
-// 		const { electionId, encryptedVote, token, signedToken } = req.body;
-// 		if (!electionId || !encryptedVote || !token || !signedToken) {
-// 			return res.status(400).json({ error: "Missing parameters" });
-// 		}
+// 8. Create Election (Admin only)
+app.post("/api/createElection", async function (req, res) {
+	try {
+		const { startTime, endTime, choices } = req.body;
+		if (!startTime || !endTime || !choices) {
+			return res.status(400).json({ error: "Missing parameters" });
+		}
 
-// 		// Interact with the VotingManager contract
-// 		const tx = votingManager.methods.castVote(
-// 			electionId,
-// 			encryptedVote,
-// 			token,
-// 			signedToken
-// 		);
+		// Generate a unique election ID
+		const electionId = crypto.randomBytes(4).toString("hex"); // 8-character hex string
 
-// 		// Estimate gas
-// 		const gas = await tx.estimateGas({ from: adminAccount.address });
+		// Generate election RSA keys
+		generateElectionRSAKeys(electionId);
 
-// 		// Send transaction
-// 		const receipt = await tx.send({
-// 			from: adminAccount.address,
-// 			gas: gas,
-// 		});
+		// Read the election public key to include in the contract
+		const publicKeyPEM = fs.readFileSync(
+			electionPublicKeyPath(electionId),
+			"utf8"
+		);
+		const publicKeyBytes = web3.utils.fromAscii(publicKeyPEM);
 
-// 		res.json({ message: "Vote cast successfully", receipt: receipt });
-// 	} catch (error) {
-// 		console.error("Error casting vote:", error);
-// 		res.status(500).json({ error: "Error casting vote" });
-// 	}
-// });
+		const choicesInBytes32 = choices.map((choice) =>
+			web3.utils.keccak256(choice)
+		);
 
-// // 7. Get Election Information
-// app.get("/api/elections/:electionId", async function (req, res) {
-// 	const electionId = req.params.electionId;
-// 	try {
-// 		const election = await electionRegistry.methods
-// 			.elections(electionId)
-// 			.call();
-// 		if (!election.exists) {
-// 			return res.status(404).json({ error: "Election does not exist" });
-// 		}
-// 		const choices = await electionRegistry.methods
-// 			.getElectionChoices(electionId)
-// 			.call();
-// 		res.json({
-// 			electionId: electionId,
-// 			startTime: election.startTime,
-// 			endTime: election.endTime,
-// 			choices: choices,
-// 			publicKey: election.publicKey,
-// 		});
-// 	} catch (error) {
-// 		console.error("Error getting election info:", error);
-// 		res.status(500).json({ error: "Error getting election info" });
-// 	}
-// });
+		// Only allow admin to create elections
+		// Implement proper authentication in production
+		const tx = electionRegistry.methods.createElection(
+			startTime,
+			endTime,
+			choicesInBytes32,
+			publicKeyBytes // Store the public key in the contract
+		);
 
-// // 8. Create Election (Admin only)
-// app.post("/api/createElection", async function (req, res) {
-// 	try {
-// 		const { startTime, endTime, choices, publicKey } = req.body;
-// 		if (!startTime || !endTime || !choices || !publicKey) {
-// 			return res.status(400).json({ error: "Missing parameters" });
-// 		}
+		const gas = await tx.estimateGas({ from: adminAccount.address });
+		const gasPrice = await web3.eth.getGasPrice(); // Retrieve the gas price for non-EIP-1559 networks
 
-// 		// Only allow admin to create elections
-// 		// Implement proper authentication in production
-// 		const tx = electionRegistry.methods.createElection(
-// 			startTime,
-// 			endTime,
-// 			choices,
-// 			publicKey
-// 		);
+		// Send transaction with gas and gasPrice specified
+		const receipt = await tx.send({
+			from: adminAccount.address,
+			gas: gas,
+			gasPrice: gasPrice, // Specify gasPrice for compatibility with non-EIP-1559 networks
+		});
+		// Convert BigInt values in the receipt to strings
+		const sanitizedReceipt = JSON.parse(
+			JSON.stringify(receipt, (key, value) =>
+				typeof value === "bigint" ? value.toString() : value
+			)
+		);
 
-// 		const gas = await tx.estimateGas({ from: adminAccount.address });
+		res.json({
+			message: "Election created",
+			receipt: sanitizedReceipt,
+			electionId: electionId,
+		});
+	} catch (error) {
+		console.error("Error creating election:", error);
+		res.status(500).json({ error: "Error creating election" });
+	}
+});
 
-// 		const receipt = await tx.send({
-// 			from: adminAccount.address,
-// 			gas: gas,
-// 		});
+// 9. Tally Votes (Admin only)
+app.post("/api/tallyVotes", async function (req, res) {
+	try {
+		const { electionId } = req.body;
+		if (!electionId) {
+			return res.status(400).json({ error: "Missing electionId" });
+		}
 
-// 		res.json({ message: "Election created", receipt: receipt });
-// 	} catch (error) {
-// 		console.error("Error creating election:", error);
-// 		res.status(500).json({ error: "Error creating election" });
-// 	}
-// });
+		// Ensure the election has ended
+		const election = await electionRegistry.methods
+			.elections(electionId)
+			.call();
+		if (!election.exists) {
+			return res.status(404).json({ error: "Election does not exist" });
+		}
+		const currentTime = Math.floor(Date.now() / 1000);
+		if (currentTime <= parseInt(election.endTime)) {
+			return res
+				.status(400)
+				.json({ error: "Election has not ended yet; cannot tally votes" });
+		}
 
-// // 9. Tally Votes (Admin only)
-// app.post("/api/tallyVotes", async function (req, res) {
-// 	try {
-// 		const { electionId } = req.body;
-// 		if (!electionId) {
-// 			return res.status(400).json({ error: "Missing electionId" });
-// 		}
+		// Retrieve encrypted votes from the VotingManager contract
+		const voteCount = await votingManager.methods
+			.getEncryptedVoteCount(electionId)
+			.call();
+		let encryptedVotes = [];
+		for (let i = 0; i < voteCount; i++) {
+			const encryptedVote = await votingManager.methods
+				.getEncryptedVote(electionId, i)
+				.call();
+			encryptedVotes.push(encryptedVote);
+		}
 
-// 		// Ensure the election has ended
-// 		const election = await electionRegistry.methods
-// 			.elections(electionId)
-// 			.call();
-// 		if (!election.exists) {
-// 			return res.status(404).json({ error: "Election does not exist" });
-// 		}
-// 		const currentTime = Math.floor(Date.now() / 1000);
-// 		if (currentTime <= parseInt(election.endTime)) {
-// 			return res
-// 				.status(400)
-// 				.json({ error: "Election has not ended yet; cannot tally votes" });
-// 		}
+		// Decrypt votes using the election's private keys
+		generateElectionRSAKeys(electionId);
 
-// 		// Retrieve encrypted votes from the VotingManager contract
-// 		const voteCount = await votingManager.methods
-// 			.getEncryptedVoteCount(electionId)
-// 			.call();
-// 		let encryptedVotes = [];
-// 		for (let i = 0; i < voteCount; i++) {
-// 			const encryptedVote = await votingManager.methods
-// 				.getEncryptedVote(electionId, i)
-// 				.call();
-// 			encryptedVotes.push(encryptedVote);
-// 		}
+		const electionPrivateKeyPEM = fs
+			.readFileSync(electionPrivateKeyPath(electionId), "utf8")
+			.trim();
+		const electionPrivateKey = new NodeRSA(
+			electionPrivateKeyPEM,
+			"pkcs1-private"
+		);
 
-// 		// Decrypt votes using the election's private key
-// 		// Assume the election's private key is stored securely
-// 		const electionPrivateKeyPEM = fs
-// 			.readFileSync(`./keys/election_${electionId}_private_key.pem`, "utf8")
-// 			.trim();
-// 		const electionPrivateKey = new NodeRSA(
-// 			electionPrivateKeyPEM,
-// 			"pkcs1-private"
-// 		);
+		let decryptedVotes = [];
+		for (let encVote of encryptedVotes) {
+			// Decrypt the vote
+			const decryptedVote = electionPrivateKey.decrypt(
+				Buffer.from(encVote.slice(2), "hex"),
+				"utf8"
+			);
+			decryptedVotes.push(decryptedVote);
+		}
 
-// 		let decryptedVotes = [];
-// 		for (let encVote of encryptedVotes) {
-// 			// Decrypt the vote
-// 			const decryptedVote = electionPrivateKey.decrypt(
-// 				Buffer.from(encVote.slice(2), "hex"),
-// 				"utf8"
-// 			);
-// 			decryptedVotes.push(decryptedVote);
-// 		}
+		// Tally the votes
+		let voteTally = {};
+		for (let vote of decryptedVotes) {
+			if (voteTally[vote]) {
+				voteTally[vote] += 1;
+			} else {
+				voteTally[vote] = 1;
+			}
+		}
 
-// 		// Tally the votes
-// 		let voteTally = {};
-// 		for (let vote of decryptedVotes) {
-// 			if (voteTally[vote]) {
-// 				voteTally[vote] += 1;
-// 			} else {
-// 				voteTally[vote] = 1;
-// 			}
-// 		}
-
-// 		res.json({ electionId: electionId, results: voteTally });
-// 	} catch (error) {
-// 		console.error("Error tallying votes:", error);
-// 		res.status(500).json({ error: "Error tallying votes" });
-// 	}
-// });
+		res.json({ electionId: electionId, results: voteTally });
+	} catch (error) {
+		console.error("Error tallying votes:", error);
+		res.status(500).json({ error: "Error tallying votes" });
+	}
+});
 
 // --- Error Handling ---
 

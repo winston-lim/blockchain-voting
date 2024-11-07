@@ -9,7 +9,7 @@ contract ElectionRegistry {
         uint256 endTime;
         bytes32[] choices; // List of valid choices (hashed)
         bool exists;
-        address publicKey; // Address representing the election's public key
+        bytes publicKey; // Address representing the election's public key
     }
 
     mapping(uint256 => Election) public elections;
@@ -30,7 +30,7 @@ contract ElectionRegistry {
         uint256 _startTime,
         uint256 _endTime,
         bytes32[] memory _choices,
-        address _publicKey // Placeholder for the public key
+        bytes memory _publicKey // Placeholder for the public key
     ) public onlyAdmin {
         require(_startTime < _endTime, "Invalid election period");
         require(_choices.length > 0, "At least one choice is required");
@@ -55,7 +55,7 @@ contract ElectionRegistry {
     function getElectionInfo(uint256 _electionId)
         public
         view
-        returns (uint256, uint256, bytes32[] memory, address)
+        returns (uint256, uint256, bytes32[] memory, bytes memory)
     {
         require(elections[_electionId].exists, "Election does not exist");
         Election storage election = elections[_electionId];
