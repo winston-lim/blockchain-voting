@@ -223,13 +223,19 @@ app.get("/api/elections/:electionId", async function (req, res) {
 		const choices = await electionRegistry.methods
 			.getElectionChoices(electionId)
 			.call();
-		res.json({
+		const resp = {
 			electionId: electionId,
 			startTime: election.startTime,
 			endTime: election.endTime,
 			choices: choices,
 			publicKey: election.publicKey,
-		});
+		};
+		const sanitizedResp = JSON.parse(
+			JSON.stringify(resp, (_, value) =>
+				typeof value === "bigint" ? value.toString() : value
+			)
+		);
+		res.json(sanitizedResp);
 	} catch (error) {
 		console.error("Error getting election info:", error);
 		res.status(500).json({ error: "Error getting election info" });
