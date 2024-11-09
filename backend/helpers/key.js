@@ -3,6 +3,7 @@ const path = require("path");
 const NodeRSA = require("node-rsa");
 const Wallet = require("ethereumjs-wallet").default;
 const { web3 } = require("./web3.js");
+const { ethers } = require("ethers")
 
 const KEYS_DIRECTORY = "./keys";
 // Ensure the KEYS_DIRECTORY exists
@@ -43,36 +44,19 @@ function generateElectionRSAKeys(electionId) {
 // Admin's ETH key
 const adminAccountAddress =
     require("../../onchain/build/contracts/DeploymentAddresses.json").DeployerAccount;
-const adminPrivateKey =
+const adminPrivateKey = "0x" +
     require("../../onchain/build/contracts/GanacheKeys.json").private_keys[
     adminAccountAddress.toLowerCase()
     ];
 const adminAccount = web3.eth.accounts.privateKeyToAccount(
-    "0x" + adminPrivateKey
+    adminPrivateKey
 );
 web3.eth.accounts.wallet.add(adminAccount);
 
 async function signMessage(message) {
-    const signature = await web3.eth.sign(message, adminAccount);
-
-    // Convert signature to buffer
-    const signatureBuffer = Buffer.from(signature.slice(2), "hex");
-
-    // Extract r, s, v
-    const r = signatureBuffer.slice(0, 32);
-    const s = signatureBuffer.slice(32, 64);
-    let v = signatureBuffer[64];
-
-    // Adjust v
-    if (v < 27) {
-        v += 27;
-    }
-
-    // Reconstruct the signature
-    const adjustedSignature =
-        "0x" + Buffer.concat([r, s, Buffer.from([v])]).toString("hex");
-
-    return adjustedSignature;
+    const wallet = new ethers.Wallet(adminPrivateKey);
+    const signature = await wallet.signMessage(ethers.getBytes(message));
+    return [signature, wallet.address]
 }
 
 module.exports = {
@@ -81,5 +65,6 @@ module.exports = {
     generateElectionRSAKeys,
     adminPrivateKey,
     adminAccount,
+    adminAccountAddress,
     signMessage,
 };
