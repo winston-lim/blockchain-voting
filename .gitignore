@@ -26,3 +26,4 @@ yarn-error.log*
 # env variables
 *.env
 */keys
+shared
