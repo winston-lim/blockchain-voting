@@ -128,6 +128,6 @@ contract("ElectionRegistry", (accounts) => {
 		expect(retrievedChoices.length).to.equal(2);
 		expect(retrievedChoices[0]).to.equal(choices[0]);
 		expect(retrievedChoices[1]).to.equal(choices[1]);
-		expect(retrievedPublicKey).to.equal(publicKey);
+		expect(retrievedPublicKey.toLowerCase()).to.equal(publicKey.toLowerCase());
 	});
 });

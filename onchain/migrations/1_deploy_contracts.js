@@ -19,7 +19,7 @@ module.exports = async function (deployer, _, accounts) {
 	};
 	const outputPath = path.resolve(
 		__dirname,
-		"../build/contracts/DeploymentAddresses.json"
+		"../../shared/DeploymentAddresses.json"
 	);
 	fs.writeFileSync(outputPath, JSON.stringify(addresses, null, 2));
 };
