@@ -1,23 +1,21 @@
 const fs = require("fs");
 const path = require("path");
 const NodeRSA = require("node-rsa");
-const Wallet = require("ethereumjs-wallet").default;
 const { web3 } = require("./web3.js");
-const { ethers } = require("ethers");
 
-const KEYS_DIRECTORY = "./keys";
-// Ensure the KEYS_DIRECTORY exists
-if (!fs.existsSync(KEYS_DIRECTORY)) {
-	fs.mkdirSync(KEYS_DIRECTORY, { recursive: true });
+if (fs.existsSync("./keys")) {
+	fs.rmdirSync("./keys", { recursive: true });
 }
-const electionPrivateKeyPath = (electionId) =>
-	path.join(KEYS_DIRECTORY, `election_${electionId}_private_key.pem`);
-const electionPublicKeyPath = (electionId) =>
-	path.join(KEYS_DIRECTORY, `election_${electionId}_public_key.pem`);
+fs.mkdirSync("./keys", { recursive: true });
 
-function generateElectionRSAKeys(electionId) {
-	const privKeyPath = electionPrivateKeyPath(electionId);
-	const pubKeyPath = electionPublicKeyPath(electionId);
+const electionPrivateKeyPath = (directory, electionId) =>
+	path.join(directory, `election_${electionId}_private_key.pem`);
+const electionPublicKeyPath = (directory, electionId) =>
+	path.join(directory, `election_${electionId}_public_key.pem`);
+
+function generateElectionRSAKeys(directory, electionId) {
+	const privKeyPath = electionPrivateKeyPath(directory, electionId);
+	const pubKeyPath = electionPublicKeyPath(directory, electionId);
 
 	if (!fs.existsSync(privKeyPath) || !fs.existsSync(pubKeyPath)) {
 		console.log(
@@ -41,6 +39,29 @@ function generateElectionRSAKeys(electionId) {
 	}
 }
 
+function getElectionRSAKeys(directory, electionId) {
+	const privKeyPath = electionPrivateKeyPath(directory, electionId);
+	const pubKeyPath = electionPublicKeyPath(directory, electionId);
+	console.log({
+		privKeyPath,
+		pubKeyPath,
+	});
+	if (!fs.existsSync(privKeyPath) || !fs.existsSync(pubKeyPath)) {
+		throw new Error("Election keys not found!");
+	}
+	const electionRSAPrivateKeyPEM = fs.readFileSync(privKeyPath, "utf8").trim();
+	const electionRSAPublicKeyPEM = fs.readFileSync(pubKeyPath, "utf8").trim();
+	const electionRSAPrivateKey = new NodeRSA(
+		electionRSAPrivateKeyPEM,
+		"pkcs1-private"
+	);
+	const electionRSAPublicKey = new NodeRSA(
+		electionRSAPublicKeyPEM,
+		"pkcs1-public"
+	);
+	return [electionRSAPrivateKey, electionRSAPublicKey];
+}
+
 // Admin's ETH key
 const adminAccountAddress =
 	require("../../shared/DeploymentAddresses.json").DeployerAccount;
@@ -53,15 +74,36 @@ const adminAccount = web3.eth.accounts.privateKeyToAccount(adminPrivateKey);
 web3.eth.accounts.wallet.add(adminAccount);
 
 async function signMessage(message) {
-	const wallet = new ethers.Wallet(adminPrivateKey);
-	const signature = await wallet.signMessage(ethers.getBytes(message));
-	return [signature, wallet.address];
+	const { signature } = await web3.eth.sign(message, adminAccountAddress);
+	console.log({
+		signature,
+	});
+
+	// Convert signature to buffer
+	const signatureBuffer = Buffer.from(signature.slice(2), "hex");
+
+	// Extract r, s, v
+	const r = signatureBuffer.slice(0, 32);
+	const s = signatureBuffer.slice(32, 64);
+	let v = signatureBuffer[64];
+
+	// Adjust v
+	if (v < 27) {
+		v += 27;
+	}
+
+	// Reconstruct the signature
+	const adjustedSignature =
+		"0x" + Buffer.concat([r, s, Buffer.from([v])]).toString("hex");
+
+	return adjustedSignature;
 }
 
 module.exports = {
 	electionPrivateKeyPath,
 	electionPublicKeyPath,
 	generateElectionRSAKeys,
+	getElectionRSAKeys,
 	adminPrivateKey,
 	adminAccount,
 	adminAccountAddress,

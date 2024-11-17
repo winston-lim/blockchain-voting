@@ -7,27 +7,15 @@ import {
 	Td,
 	Th,
 	Tr,
-	Center,
-	Spinner,
 } from "@chakra-ui/react";
 import { FC } from "react";
 import { PersonalInformationData } from "../types/api";
 
-type PersonalInformationSectionProps = {
-	data?: PersonalInformationData;
+type PersonalInformationProps = {
+	data: PersonalInformationData;
 };
 
-const PersonalInformationSection: FC<PersonalInformationSectionProps> = ({
-	data,
-}) => {
-	if (!data) {
-		return (
-			<Center minH="200px">
-				<Spinner size="xl" color="orange.400" />
-			</Center>
-		);
-	}
-
+const PersonalInformation: FC<PersonalInformationProps> = ({ data }) => {
 	return (
 		<Container
 			maxW="container.md"
@@ -132,4 +120,4 @@ const PersonalInformationSection: FC<PersonalInformationSectionProps> = ({
 	);
 };
 
-export default PersonalInformationSection;
+export default PersonalInformation;

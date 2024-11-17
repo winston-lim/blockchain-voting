@@ -1,10 +1,18 @@
 @startuml
-actor Admin
-participant VotingManager
+title Step 6: Admin Tallies Votes
 
-Admin -> VotingManager: Get encrypted votes for electionId
-VotingManager --> Admin: List of encrypted votes
-Admin -> Admin: Decrypt votes using election private key
-Admin -> Admin: Tally votes
-Admin -> All: Announce election results
+participant Admin
+participant Backend
+participant "VotingManager Contract" as VotingManager
+
+Admin -> Backend: GET /api/tallyVotes
+Backend -> VotingManager: getEncryptedVoteCount(electionId)
+loop For each vote
+    Backend -> VotingManager: getEncryptedVote(electionId, index)
+    VotingManager --> Backend: Return encrypted vote
+    Backend -> Backend: Decrypt vote with election's private key
+    Backend -> Backend: Tally vote
+end
+Backend --> Admin: Return election results
+
 @enduml

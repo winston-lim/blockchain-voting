@@ -1,15 +1,21 @@
 @startuml
-actor Voter
-participant Frontend
-participant VotingManager
+title Step 4: Voter Casts Vote via Backend Service
 
-Voter -> Frontend: Prepare encrypted vote
-Voter -> Voter: Encrypt vote with election's public key
-Voter -> Frontend: Submit encryptedVote, token, signedToken
-Frontend -> VotingManager: castVote(electionId, encryptedVote, token, signedToken)
-VotingManager -> VotingManager: Verify token signature
-VotingManager -> VotingManager: Check token not used
-VotingManager -> VotingManager: Record vote and mark token as used
-VotingManager --> Frontend: Vote accepted
-Frontend --> Voter: Vote successfully cast
+participant Voter
+participant Frontend
+participant Backend
+participant "VotingManager Contract" as VotingManager
+
+Voter -> Frontend: Submit vote choice
+Frontend -> Backend: POST /api/castVote (vote, sid)
+Backend -> Backend: Retrieve NRIC from sessionData[sid]
+Backend -> Backend: Generate token
+Backend -> Backend: Sign tokenHash
+Backend -> Backend: Encrypt vote with election's public key
+Backend -> VotingManager: castVote(electionId, encryptedVote, token, signedToken)
+VotingManager -> VotingManager: Record vote
+VotingManager --> Backend: Return transaction receipt
+Backend --> Frontend: Respond with success
+Frontend -> Voter: Confirm vote cast
+
 @enduml

@@ -1,0 +1,65 @@
+@startuml
+participant Voter
+participant Admin
+participant Frontend
+participant Backend
+participant "Singpass MyInfo API" as MyInfo
+participant "ElectionRegistry Contract" as ElectionRegistry
+participant "VotingManager Contract" as VotingManager
+== Step 1: Election Creation by Admin == 
+Admin -> Backend: POST /api/createElection
+Backend -> Backend: Generate RSA keys for election
+Backend -> ElectionRegistry: createElection(startTime, endTime, choices, publicKey)
+ElectionRegistry -> ElectionRegistry: Store election details
+ElectionRegistry --> Backend: Return transaction receipt
+Backend -> Admin: Respond with electionId and receipt
+
+== Step 2: Voter Authentication via Singpass (MyInfo) ==
+Voter -> Frontend: Access application
+Frontend -> Voter: Display login option
+Voter -> Frontend: Click "Login with Singpass"
+Frontend -> MyInfo: Redirect to Singpass login
+Voter -> MyInfo: Login with Singpass credentials
+MyInfo -> Frontend: Redirect back with auth code
+Frontend -> Backend: Send auth code and session ID
+Backend -> MyInfo: Exchange auth code for access token
+Backend -> MyInfo: Retrieve person data (NRIC)
+MyInfo --> Backend: Return person data
+Backend -> Backend: Store NRIC in session data
+Backend -> Frontend: Confirm authentication
+Frontend -> Voter: Display authenticated session
+
+== Step 3: Voter Retrieves Election Information ==
+Voter -> Frontend: Request election info
+Frontend -> Backend: GET /api/elections/:electionId
+Backend -> ElectionRegistry: elections(electionId)
+ElectionRegistry --> Backend: Return election details
+Backend -> Backend: Map hashed choices to original choices
+Backend --> Frontend: Return election info
+Frontend -> Voter: Display election info
+
+== Step 4: Voter Casts Vote via Backend Service ==
+Voter -> Frontend: Submit vote choice
+Frontend -> Backend: POST /api/castVote (vote, sid)
+Backend -> Backend: Retrieve NRIC from sessionData[sid]
+Backend -> Backend: Generate token
+Backend -> Backend: Sign tokenHash
+Backend -> Backend: Encrypt vote prefixed with random salt with election's public key
+Backend -> VotingManager: castVote(electionId, encryptedVote, token, signedToken)
+VotingManager -> VotingManager: Record vote
+VotingManager --> Backend: Return transaction receipt
+Backend --> Frontend: Respond with success
+Frontend -> Voter: Confirm vote cast
+
+== Step 5: Admin Tallies Votes == 
+Admin -> Backend: GET /api/tallyVotes
+Backend -> VotingManager: getEncryptedVoteCount(electionId)
+loop For each vote
+    Backend -> VotingManager: getEncryptedVote(electionId, index)
+    VotingManager --> Backend: Return encrypted vote
+    Backend -> Backend: Decrypt vote with election's private key
+    Backend -> Backend: Tally vote
+end
+Backend --> Admin: Return election results
+
+@enduml

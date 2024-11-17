@@ -1,4 +1,4 @@
-# VoteSecure
+# Vote systems with blockchain
 
 ## Problem
 
@@ -16,7 +16,7 @@ In contrast, voting via blockchain has the following benefits:
 
 ## Solution
 
-VoteSecure is a blockchain-based voting system designed to offer transparency, security, low cost, and accessibility for both administrators and users. By leveraging blockchain technology and zero-knowledge proofs (ZKPs), VoteSecure aims to provide a secure and private voting platform where users can confidently cast their votes, and administrators can efficiently manage the voting process
+This system is a blockchain-based voting system designed to offer transparency, security, low cost, and accessibility for both administrators and users. By leveraging blockchain technology and zero-knowledge proofs (ZKPs), VoteSecure aims to provide a secure and private voting platform where users can confidently cast their votes, and administrators can efficiently manage the voting process
 
 # Features
 

@@ -1,40 +1,52 @@
-import { Box, Container, Flex, useToast } from "@chakra-ui/react";
+import {
+	Box,
+	Center,
+	Container,
+	Flex,
+	Spinner,
+	useToast,
+} from "@chakra-ui/react";
 import { FC, useEffect, useState } from "react";
 import { useCookies } from "react-cookie";
-import PersonalInformationSection from "../components/personal-information";
+import PersonalInformation from "../components/personal-information";
 import { PersonalInformationData } from "../types/api";
-import { GET_PERSONAL_DATA_API } from "../constants/backend";
+import { COOKIE_NAMES, GET_PERSONAL_DATA_API } from "../constants/backend";
+import Header from "../components/header";
+import ElectionInformation from "../components/election-information";
 
 const Protected: FC = () => {
 	const toast = useToast();
 	const [data, setData] = useState<PersonalInformationData | undefined>();
-	const [cookies, setCookie, removeCookie] = useCookies(["sid", "code"]);
+	const [cookies] = useCookies(COOKIE_NAMES);
 
 	useEffect(() => {
 		const fetchPersonalInformation = async () => {
-			try {
-				const response = await fetch(GET_PERSONAL_DATA_API, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						authCode: cookies["code"],
-						sid: cookies["sid"],
-					}),
-				}).then((response) => response.json());
-				setData(response);
-			} catch (e) {
-				toast({
-					title: "Error",
-					description: (e as Error).message,
-					status: "error",
-					duration: 5000,
-					isClosable: true,
+			console.log({
+				authCode: cookies["code"],
+				sid: cookies["sid"],
+			});
+			return fetch(GET_PERSONAL_DATA_API, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					authCode: cookies["code"],
+					sid: cookies["sid"],
+				}),
+			})
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error();
+					}
+					return response.json();
+				})
+				.then((response) => setData(response))
+				.catch((e) => {
+					console.error(e);
 				});
-			}
 		};
-		if (!data) {
+		if (!data && cookies["sid"] && cookies["code"]) {
 			fetchPersonalInformation();
 		}
 	}, [cookies, data, toast]);
@@ -49,17 +61,28 @@ const Protected: FC = () => {
 			borderRadius="md"
 			textAlign="center"
 		>
-			<Container maxW="container.xl">
-				<Flex
-					wrap="wrap"
-					direction={"column"}
-					align="center"
-					justify="center"
-					minH="100vh"
-				>
-					<PersonalInformationSection data={data} />
-				</Flex>
-			</Container>
+			{!data ? (
+				<>
+					<Center minH="200px">
+						<Spinner size="xl" color="orange.400" />
+					</Center>
+				</>
+			) : (
+				<Container maxW="container.xl">
+					<Flex
+						wrap="wrap"
+						direction={"column"}
+						align="center"
+						justify="center"
+						minH="100vh"
+					>
+						<Header data={data} />
+						<PersonalInformation data={data} />
+						<Box h={2} />
+						<ElectionInformation />
+					</Flex>
+				</Container>
+			)}
 		</Box>
 	);
 };

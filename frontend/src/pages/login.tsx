@@ -10,17 +10,29 @@ import {
 	useMediaQuery,
 	useToast,
 } from "@chakra-ui/react";
-import { FC, useState } from "react";
+import { FC, useEffect, useState } from "react";
 import {
 	GET_ENV_API,
 	GENERATE_CODE_CHALLENGE_API,
 	HASH_METHOD,
+	COOKIE_NAMES,
 } from "../constants/backend";
+import { useCookies } from "react-cookie";
 
 const Login: FC = () => {
 	const toast = useToast();
 	const [isMobile] = useMediaQuery("(max-width: 768px)", {});
 	const [isLoading, setIsLoading] = useState(false);
+
+	const removeCookie = useCookies(COOKIE_NAMES)[2];
+
+	// On mount, clear cookies
+	useEffect(() => {
+		for (let cookie in COOKIE_NAMES) {
+			removeCookie(cookie);
+		}
+		localStorage.clear();
+	}, [removeCookie]);
 
 	const handleFormSubmit = () => {
 		const authenticate = async () => {

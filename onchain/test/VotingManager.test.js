@@ -41,9 +41,9 @@ contract("VotingManager", (accounts) => {
 		// Admin signs the tokenHash
 		const signedToken = await signMessage(tokenHash, admin);
 
-		// Encrypted vote (simulated)
+		// Encrypted vote
 		const encryptedVote = web3.utils.randomHex(32);
-		return [token, signedToken, encryptedVote];
+		return [token, signedToken, encryptedVote, tokenHash];
 	};
 
 	let electionRegistry;
@@ -231,5 +231,13 @@ contract("VotingManager", (accounts) => {
 			encryptedVote1,
 			encryptedVote2,
 		]);
+	});
+
+	it("should verify signature correctly", async () => {
+		const tokens = await generateRequiredTokens();
+
+		const signature = await web3.eth.accounts.recover(tokens[3], tokens[1]);
+
+		expect(signature).to.equal(admin);
 	});
 });

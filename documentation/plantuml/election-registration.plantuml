@@ -1,10 +1,15 @@
 @startuml
-actor Admin
-participant Server
-participant ElectionRegistry
+title Step 2: Election Creation by Admin
 
-Admin -> Server: Create Election (startTime, endTime, choices)
-Server -> ElectionRegistry: createElection(startTime, endTime, choices, publicKey)
-ElectionRegistry --> Server: Transaction Receipt
-Server --> Admin: Election Created (electionId)
+participant Admin
+participant Backend
+participant "ElectionRegistry Contract" as ElectionRegistry
+
+Admin -> Backend: POST /api/createElection
+Backend -> Backend: Generate RSA keys for election
+Backend -> ElectionRegistry: createElection(startTime, endTime, choices, publicKey)
+ElectionRegistry -> ElectionRegistry: Store election details
+ElectionRegistry --> Backend: Return transaction receipt
+Backend -> Admin: Respond with electionId and receipt
+
 @enduml

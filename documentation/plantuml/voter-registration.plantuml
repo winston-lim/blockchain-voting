@@ -1,25 +1,23 @@
 @startuml
-actor Voter
-participant Frontend
-participant Server
-participant Admin
-participant Singpass
+title Step 1: Voter Authentication via Singpass (MyInfo)
 
-Voter -> Frontend: Access voting system
-Frontend -> Voter: Display authentication option
-Voter -> Singpass: Authenticate
-Singpass --> Voter: Authentication successful
-Voter -> Frontend: Return from authentication
-Frontend -> Server: Request voter data (with auth code)
-Server -> Singpass: Get voter data (with auth code)
-Singpass --> Server: Voter data (including NRIC)
-Server --> Frontend: Voter data
-Voter -> Frontend: Generate token and blinding factor
-Voter -> Voter: Blinded Token = Blind(token)
-Voter -> Server: Request token signing (blindedToken)
-Server -> Admin: Sign blindedToken
-Admin --> Server: Signed Blinded Token
-Server --> Voter: Signed Blinded Token
-Voter -> Voter: Unblind signed token
-Voter -> Voter: Store signed token for voting
+participant Voter
+participant Frontend
+participant Backend
+participant "Singpass MyInfo API" as MyInfo
+
+Voter -> Frontend: Access application
+Frontend -> Voter: Display login option
+Voter -> Frontend: Click "Login with Singpass"
+Frontend -> MyInfo: Redirect to Singpass login
+Voter -> MyInfo: Login with Singpass credentials
+MyInfo -> Frontend: Redirect back with auth code
+Frontend -> Backend: Send auth code and session ID
+Backend -> MyInfo: Exchange auth code for access token
+Backend -> MyInfo: Retrieve person data (NRIC)
+MyInfo --> Backend: Return person data
+Backend -> Backend: Store NRIC in session data
+Backend -> Frontend: Confirm authentication
+Frontend -> Voter: Display authenticated session
+
 @enduml

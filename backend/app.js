@@ -15,6 +15,7 @@ const {
 	electionPrivateKeyPath,
 	electionPublicKeyPath,
 	generateElectionRSAKeys,
+	getElectionRSAKeys,
 	signMessage,
 } = require("./helpers/key.js");
 const { web3 } = require("./helpers/web3.js");
@@ -28,6 +29,7 @@ const connector = new MyInfoConnector(config.MYINFO_CONNECTOR_CONFIG);
 // Session management
 const sessionIdCache = {}; // Stores codeVerifier and NRIC per session
 const issuedTokens = {}; // Tracks issued tokens per voter per election
+const electionHashedChoices = {}; // public key to unencrypted choices
 
 // Middlewares
 app.use(express.json());
@@ -167,78 +169,7 @@ app.post("/getPersonData", async function (req, res) {
 	}
 });
 
-// Request Voting Token (with blind signature)
-app.post("/api/requestToken", async function (req, res) {
-	try {
-		const sid = req.cookies.sid;
-		const sessionData = sessionIdCache[sid];
-		if (!sessionData || !sessionData.nric) {
-			return res.status(401).json({ error: "Unauthorized" });
-		}
-		const nric = sessionData.nric;
-		const electionId = req.body.electionId;
-		if (!electionId) {
-			return res.status(400).json({ error: "Missing electionId" });
-		}
-		const key = nric + "_" + electionId;
-		if (issuedTokens[key]) {
-			return res
-				.status(400)
-				.json({ error: "Token already issued for this election" });
-		}
-
-		// Get the blinded token from the request
-		const blindedToken = req.body.blindedToken;
-		if (!blindedToken) {
-			return res.status(400).json({ error: "Missing blindedToken" });
-		}
-		// Admin signs the blinded token using ECDSA blind signature
-		const signedBlindedTokenHex = await signMessage(blindedToken);
-
-		// Mark that the voter has been issued a token
-		issuedTokens[key] = true;
-
-		// Send the signed blinded token back to the voter
-		res.json({ signedBlindedToken: signedBlindedTokenHex });
-	} catch (error) {
-		console.error("Error in requestToken:", error);
-		res.status(500).json({ error: "Error requesting token" });
-	}
-});
-
-// Get Election Information
-app.get("/api/elections/:electionId", async function (req, res) {
-	const electionId = req.params.electionId;
-	try {
-		const election = await electionRegistry.methods
-			.elections(electionId)
-			.call();
-		if (!election.exists) {
-			return res.status(404).json({ error: "Election does not exist" });
-		}
-		const choices = await electionRegistry.methods
-			.getElectionChoices(electionId)
-			.call();
-		const resp = {
-			electionId: electionId,
-			startTime: election.startTime,
-			endTime: election.endTime,
-			choices: choices,
-			publicKey: election.publicKey,
-		};
-		const sanitizedResp = JSON.parse(
-			JSON.stringify(resp, (_, value) =>
-				typeof value === "bigint" ? value.toString() : value
-			)
-		);
-		res.json(sanitizedResp);
-	} catch (error) {
-		console.error("Error getting election info:", error);
-		res.status(500).json({ error: "Error getting election info" });
-	}
-});
-
-// 8. Create Election (Admin only)
+// Create Election (Admin only)
 app.post("/api/createElection", async function (req, res) {
 	try {
 		const { startTime, endTime, choices } = req.body;
@@ -247,24 +178,27 @@ app.post("/api/createElection", async function (req, res) {
 		}
 
 		// Generate a unique election ID
-		const electionId = crypto.randomBytes(4).toString("hex"); // 8-character hex string
+		const electionId = 1;
 
 		// Generate election RSA keys
-		generateElectionRSAKeys(electionId);
+		generateElectionRSAKeys("./keys", electionId);
 
 		// Read the election public key to include in the contract
 		const publicKeyPEM = fs.readFileSync(
-			electionPublicKeyPath(electionId),
+			electionPublicKeyPath("./keys", electionId),
 			"utf8"
 		);
 		const publicKeyBytes = web3.utils.fromAscii(publicKeyPEM);
 
-		const choicesInBytes32 = choices.map((choice) =>
-			web3.utils.keccak256(choice)
-		);
+		const choicesInBytes32 = choices.map((choice) => {
+			const hashedChoice = web3.utils.keccak256(choice);
+			if (!(publicKeyBytes in electionHashedChoices)) {
+				electionHashedChoices[publicKeyBytes] = {};
+			}
+			electionHashedChoices[publicKeyBytes][hashedChoice] = choice;
+			return hashedChoice;
+		});
 
-		// Only allow admin to create elections
-		// Implement proper authentication in production
 		const tx = electionRegistry.methods.createElection(
 			startTime,
 			endTime,
@@ -279,11 +213,11 @@ app.post("/api/createElection", async function (req, res) {
 		const receipt = await tx.send({
 			from: adminAccount.address,
 			gas: gas,
-			gasPrice: gasPrice, // Specify gasPrice for compatibility with non-EIP-1559 networks
+			gasPrice,
 		});
 		// Convert BigInt values in the receipt to strings
 		const sanitizedReceipt = JSON.parse(
-			JSON.stringify(receipt, (key, value) =>
+			JSON.stringify(receipt, (_, value) =>
 				typeof value === "bigint" ? value.toString() : value
 			)
 		);
@@ -299,27 +233,128 @@ app.post("/api/createElection", async function (req, res) {
 	}
 });
 
-// 9. Tally Votes (Admin only)
-app.post("/api/tallyVotes", async function (req, res) {
+// Get Election Information
+app.get("/api/elections/:electionId", async function (req, res) {
+	const electionId = req.params.electionId;
+	console.log({ electionId });
 	try {
-		const { electionId } = req.body;
-		if (!electionId) {
-			return res.status(400).json({ error: "Missing electionId" });
-		}
-
-		// Ensure the election has ended
 		const election = await electionRegistry.methods
 			.elections(electionId)
 			.call();
 		if (!election.exists) {
 			return res.status(404).json({ error: "Election does not exist" });
 		}
-		const currentTime = Math.floor(Date.now() / 1000);
-		if (currentTime <= parseInt(election.endTime)) {
+		const choices = await electionRegistry.methods
+			.getElectionChoices(electionId)
+			.call();
+		console.log({
+			pk: election.publicKey,
+			electionHashedChoices,
+			choices,
+		});
+		const resp = {
+			electionId: electionId,
+			startTime: election.startTime,
+			endTime: election.endTime,
+			choices: choices.map((hashedChoice) => ({
+				original: electionHashedChoices[election.publicKey][hashedChoice],
+				hashed: hashedChoice,
+			})),
+			publicKey: election.publicKey,
+		};
+		const sanitizedResp = JSON.parse(
+			JSON.stringify(resp, (_, value) =>
+				typeof value === "bigint" ? value.toString() : value
+			)
+		);
+		res.json(sanitizedResp);
+	} catch (error) {
+		console.error("Error getting election info:", error);
+		res.status(500).json({ error: "Error getting election info" });
+	}
+});
+
+// Cast vote
+app.post("/api/castVote", async function (req, res) {
+	try {
+		const electionId = 1;
+		const { sid, vote } = req.body;
+		const sessionData = sessionIdCache[sid];
+		if (!sessionData || !sessionData.nric) {
+			return res.status(401).json({ error: "Unauthorized" });
+		}
+		const nric = sessionData.nric;
+		const key = nric + "_" + electionId;
+		if (!electionId || !vote) {
+			return res.status(400).json({ error: "Missing parameters" });
+		}
+		if (issuedTokens[key]) {
 			return res
 				.status(400)
-				.json({ error: "Election has not ended yet; cannot tally votes" });
+				.json({ error: "Token already issued for this election" });
 		}
+		// Token issuance
+		const token = web3.utils.randomHex(32);
+		// Compute tokenHash for fixed size
+		const tokenHash = web3.utils.soliditySha3(token);
+		// Admin signs the tokenHash
+		const signedToken = await signMessage(tokenHash);
+		// Encrypt vote
+		const electionRSAPublicKey = getElectionRSAKeys("./keys", electionId)[1];
+		const salt = web3.utils.randomHex(16).slice(2);
+		const encryptedVote = electionRSAPublicKey.encrypt(vote + salt);
+
+		// Interact with the VotingManager contract
+		const tx = votingManager.methods.castVote(
+			electionId,
+			encryptedVote,
+			token,
+			signedToken
+		);
+		// Estimate gas
+		const gas = await tx.estimateGas({ from: adminAccount.address });
+		const gasPrice = await web3.eth.getGasPrice(); // Retrieve the gas price for non-EIP-1559 networks
+		// Send transaction
+		const receipt = await tx.send({
+			from: adminAccount.address,
+			gas: gas,
+			gasPrice,
+		});
+		issuedTokens[key] = true;
+		// Convert BigInt values in the receipt to strings
+		const sanitizedReceipt = JSON.parse(
+			JSON.stringify(receipt, (_, value) =>
+				typeof value === "bigint" ? value.toString() : value
+			)
+		);
+		res.json({ message: "Vote cast successfully", receipt: sanitizedReceipt });
+	} catch (error) {
+		console.error("Error casting vote:", error);
+		res.status(500).json({ error: "Error casting vote" });
+	}
+});
+
+// Tally Votes (Admin only)
+app.get("/api/tallyVotes", async function (_, res) {
+	try {
+		const electionId = 1;
+		if (!electionId) {
+			return res.status(400).json({ error: "Missing electionId" });
+		}
+
+		const election = await electionRegistry.methods
+			.elections(electionId)
+			.call();
+		if (!election.exists) {
+			return res.status(404).json({ error: "Election does not exist" });
+		}
+		// // Ensure the election has ended
+		// const currentTime = Math.floor(Date.now() / 1000);
+		// if (currentTime <= parseInt(election.endTime)) {
+		// 	return res
+		// 		.status(400)
+		// 		.json({ error: "Election has not ended yet; cannot tally votes" });
+		// }
 
 		// Retrieve encrypted votes from the VotingManager contract
 		const voteCount = await votingManager.methods
@@ -334,15 +369,7 @@ app.post("/api/tallyVotes", async function (req, res) {
 		}
 
 		// Decrypt votes using the election's private keys
-		generateElectionRSAKeys(electionId);
-
-		const electionPrivateKeyPEM = fs
-			.readFileSync(electionPrivateKeyPath(electionId), "utf8")
-			.trim();
-		const electionPrivateKey = new NodeRSA(
-			electionPrivateKeyPEM,
-			"pkcs1-private"
-		);
+		const electionPrivateKey = getElectionRSAKeys("./keys", electionId)[0];
 
 		let decryptedVotes = [];
 		for (let encVote of encryptedVotes) {
@@ -351,7 +378,8 @@ app.post("/api/tallyVotes", async function (req, res) {
 				Buffer.from(encVote.slice(2), "hex"),
 				"utf8"
 			);
-			decryptedVotes.push(decryptedVote);
+			const removeSalt = decryptedVote.slice(0, decryptedVote.length - 32);
+			decryptedVotes.push(removeSalt);
 		}
 
 		// Tally the votes
@@ -370,105 +398,6 @@ app.post("/api/tallyVotes", async function (req, res) {
 		res.status(500).json({ error: "Error tallying votes" });
 	}
 });
-
-// --- Blinding Debug ---
-
-// Helper function to convert base64url to BigInt
-function base64UrlToBigInt(base64Url) {
-	const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-	const buffer = Buffer.from(base64, "base64");
-	return BigInt("0x" + buffer.toString("hex"));
-}
-
-// Helper function to compute modular inverse
-function modInverse(a, m) {
-	let m0 = m,
-		y = 0n,
-		x = 1n;
-
-	if (m === 1n) return 0n;
-
-	while (a > 1n) {
-		const q = a / m;
-		let t = m;
-		m = a % m;
-		a = t;
-		t = y;
-		y = x - q * y;
-		x = t;
-	}
-
-	if (x < 0n) x += m0;
-	return x;
-}
-
-// Efficient modular exponentiation using Exponentiation by Squaring
-function modExp(base, exponent, modulus) {
-	let result = 1n; // Start with result = 1
-	base = base % modulus; // Reduce base mod modulus to prevent overflow
-
-	while (exponent > 0n) {
-		if (exponent % 2n === 1n) {
-			// If exponent is odd, multiply base to result
-			result = (result * base) % modulus;
-		}
-		exponent = exponent / 2n; // Divide exponent by 2
-		base = (base * base) % modulus; // Square the base
-	}
-
-	return result;
-}
-
-// Sign the blinded message with the private key
-function signBlindedMessage(blindedMessage, privateKey) {
-	const dBigInt = base64UrlToBigInt(privateKey.d); // Convert private exponent to BigInt
-	const NBigInt = base64UrlToBigInt(privateKey.n); // Convert modulus (N) to BigInt
-
-	// Apply modular exponentiation: S = B^d mod N
-	const signedMessage = modExp(BigInt(blindedMessage), dBigInt, NBigInt);
-
-	return signedMessage.toString();
-}
-
-// Helper function to verify the signature
-function verifySignature(message, signature, publicKey) {
-	const messageBuffer = Buffer.from(message);
-	const messageInt = BigInt("0x" + messageBuffer.toString("hex"));
-
-	const e = base64UrlToBigInt(publicKey.e); // public exponent
-	const n = base64UrlToBigInt(publicKey.n); // modulus
-
-	const signatureInt = BigInt(signature);
-	const verifiedMessage = signatureInt ** e % n;
-
-	return verifiedMessage === messageInt;
-}
-
-// Blind the message using a random factor r
-function blindMessage(message, N, E, r) {
-	const messageBuffer = Buffer.from(message);
-	const messageInt = BigInt("0x" + messageBuffer.toString("hex"));
-
-	const rBigInt = BigInt("0x" + r);
-	const NBigInt = BigInt(N);
-	const eBigInt = BigInt(E);
-
-	// B = M * r^e mod n
-	const blindedMessage = (messageInt * rBigInt ** eBigInt) % NBigInt;
-	return blindedMessage.toString();
-}
-
-// Unblind the signature
-function unblindSignature(signature, r, N) {
-	const rBigInt = BigInt("0x" + r);
-	const signatureBigInt = BigInt(signature);
-	const NBigInt = BigInt(N);
-
-	// Unblind the signature: S' = S * r^-1 mod n
-	const rInverse = modInverse(rBigInt, NBigInt);
-	const unblindedSignature = (signatureBigInt * rInverse) % NBigInt;
-	return unblindedSignature.toString();
-}
 
 // --- Error Handling ---
 

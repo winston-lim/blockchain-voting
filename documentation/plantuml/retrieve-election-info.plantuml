@@ -1,0 +1,17 @@
+@startuml
+title Step 3: Voter Retrieves Election Information
+
+participant Voter
+participant Frontend
+participant Backend
+participant "ElectionRegistry Contract" as ElectionRegistry
+
+Voter -> Frontend: Request election info
+Frontend -> Backend: GET /api/elections/:electionId
+Backend -> ElectionRegistry: elections(electionId)
+ElectionRegistry --> Backend: Return election details
+Backend -> Backend: Map hashed choices to original choices
+Backend --> Frontend: Return election info
+Frontend -> Voter: Display election info
+
+@enduml
